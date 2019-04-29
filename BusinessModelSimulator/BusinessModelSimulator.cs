@@ -4,11 +4,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace BusinessModelSimulator
 {
     public class BusinessModelSimulator
     {
+        private const int _maxDegreeOfParallelism = 10;
         private readonly string _restApiEndpoint = "http://localhost:8080/engine-rest/";
         private readonly string _processInstancePath = "history/process-instance";
         private readonly string _activityInstancePath = "history/activity-instance";
@@ -44,8 +46,18 @@ namespace BusinessModelSimulator
 
         public void SimulateProcesses()
         {
-            var workerId = "1";
+            var tasks = new List<Task>();
+            for (var i = 0; i < _maxDegreeOfParallelism; i++)
+            {
+                var id = i.ToString();
+                tasks.Add(Task.Run(() => SimulateProcessesInner(id)));
+            }
 
+            Task.WaitAll(tasks.ToArray());
+        }
+
+        public void SimulateProcessesInner(string workerId)
+        {
             var topics = new[] { new TopicSpecification("wait", 5 * 1000, ProcessDefinitionId) };
             var configuration = new FetchExternalTaskConfiguration(workerId, 10, 5 * 1000, topics);
 
