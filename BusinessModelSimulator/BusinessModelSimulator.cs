@@ -49,8 +49,8 @@ namespace BusinessModelSimulator
             var tasks = new List<Task>();
             for (var i = 0; i < _maxDegreeOfParallelism; i++)
             {
-                var id = i.ToString();
-                tasks.Add(Task.Run(() => SimulateProcessesInner(id)));
+                var workerId = i.ToString();
+                tasks.Add(Task.Run(() => SimulateProcessesInner(workerId)));
             }
 
             Task.WaitAll(tasks.ToArray());
