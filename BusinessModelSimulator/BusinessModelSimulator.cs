@@ -58,7 +58,7 @@ namespace BusinessModelSimulator
 
         public void SimulateProcessesInner(string workerId)
         {
-            var topics = new[] { new TopicSpecification("wait", 5 * 1000, ProcessDefinitionId) };
+            var topics = new[] { new TopicSpecification("wait", 10 * 1000, ProcessDefinitionId) };
             var configuration = new FetchExternalTaskConfiguration(workerId, 10, 5 * 1000, topics);
 
             while (true)
@@ -94,42 +94,57 @@ namespace BusinessModelSimulator
         {
             var processInstances = GetProcessInstances();
 
-            var lines = new List<string>();
-            var lines2 = new List<string>();
-            lines.Add("case,activity,completeTime");
+            if (processInstances == null || processInstances.Count == 0)
+            {
+                return;
+            }
+
+            var csvFileLines = new List<string>();
+            var txtFileLines = new List<string>();
+            csvFileLines.Add("case,event,completeTime");
 
             var maxDigitCount = processInstances.Count.ToString().Length;
 
             for (int i = 0; i < processInstances.Count; i++)
             {
-                var caseNumber = $"{new string('0', maxDigitCount - i.ToString().Length)}{i}";
+                var caseNumber = GetCaseNumber(maxDigitCount, i);
+
                 var instance = processInstances[i];
                 var activities = GetActivitiesForInstance(instance.Id);
 
-                var activityNames = activities.Select(x => x.ActivityName);
+                var joinedActivityNames = string.Join(" ", activities.Select(x => x.ActivityName));
 
-                var joinedActivityNames = string.Join(" ", activityNames);
-                lines2.Add(joinedActivityNames);
+                txtFileLines.Add(joinedActivityNames);
 
-                for (int j = 0; j < activities.Count(); j++)
+                activities.ForEach(activity => 
                 {
-                    var activity = activities[j];
-                    var date = activity.EndTime.AddMinutes(j);
+                    var endTimeString = activity.EndTime
+                        .ToUniversalTime()
+                        .ToString("yyyy-MM-dd HH:mm:ss.fff",
+                            System.Globalization.CultureInfo.InvariantCulture);
 
-                    lines.Add($"case{caseNumber},{activity.ActivityName},{date.ToUniversalTime().ToString("s", System.Globalization.CultureInfo.InvariantCulture)}");
-                }
+                    csvFileLines.Add($"case{caseNumber},{activity.ActivityName},{endTimeString}");
+                });
             }
 
-            File.WriteAllLines($"{folderPath}out.csv", lines);
-            File.WriteAllLines($"{folderPath}out.txt", lines2);
+            File.WriteAllLines($"{folderPath}out.csv", csvFileLines);
+            File.WriteAllLines($"{folderPath}out.txt", txtFileLines);
+        }
+
+        private string GetCaseNumber(int maxDigitCount, int caseNumber)
+        {
+            var caseNumberLength = caseNumber.ToString().Length;
+
+            return $"{new string('0', maxDigitCount - caseNumberLength)}{caseNumber}";
         }
 
         private List<ProcessInstance> GetProcessInstances()
         {
             var url = $"{_processInstanceEndpoint}?processDefinitionId={ProcessDefinitionId}";
             var response = WebRequestHandler.InvokeWebRequest<List<ProcessInstance>>(url);
-            response.Sort((x, y) => x.EndTime.CompareTo(y.EndTime));
-            return response;
+            var completedInstances = response.Where(instance => instance.EndTime != null).ToList();
+            completedInstances.Sort((x, y) => ((DateTime) x.EndTime).CompareTo(y.EndTime));
+            return completedInstances;
         }
 
         private List<ActivityInstance> GetActivitiesForInstance(string processInstanceId)
@@ -137,11 +152,17 @@ namespace BusinessModelSimulator
             var url = $"{_activityInstanceEndpoint}?processInstanceId={processInstanceId}";
             var response = WebRequestHandler.InvokeWebRequest<List<ActivityInstance>>(url);
 
-            var tasks = response.Where(a => string.Equals(a.ActivityType, "serviceTask", StringComparison.InvariantCultureIgnoreCase)
-            || string.Equals(a.ActivityType, "task", StringComparison.InvariantCultureIgnoreCase)).ToList();
+            var tasks = response.Where(activity => 
+                ActivityIsOfType(activity, "serviceTask") || ActivityIsOfType(activity, "task"))
+                .ToList();
 
             tasks.Sort((x, y) => x.EndTime.CompareTo(y.EndTime));
             return tasks;
+        }
+
+        private bool ActivityIsOfType(ActivityInstance activity, string type)
+        {
+            return string.Equals(activity.ActivityType, type, StringComparison.InvariantCultureIgnoreCase);
         }
     }
 }
